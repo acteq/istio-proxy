@@ -15,54 +15,83 @@
 TOP := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
 SHELL := /bin/bash
-LOCAL_ARTIFACTS_DIR ?= $(abspath artifacts)
-ARTIFACTS_DIR ?= $(LOCAL_ARTIFACTS_DIR)
 BAZEL_STARTUP_ARGS ?=
 BAZEL_BUILD_ARGS ?=
-BAZEL_TEST_ARGS ?=
 BAZEL_TARGETS ?= //...
 # Some tests run so slowly under the santizers that they always timeout.
 SANITIZER_EXCLUSIONS ?= -test/integration:mixer_fault_test
 HUB ?=
 TAG ?=
+
 ifeq "$(origin CC)" "default"
-CC := clang-7
+CC := clang
 endif
 ifeq "$(origin CXX)" "default"
-CXX := clang++-7
+CXX := clang++
 endif
-PATH := /usr/lib/llvm-7/bin:$(PATH)
+PATH := /usr/lib/llvm-8/bin:$(PATH)
 
-# Removed 'bazel shutdown' as it could cause CircleCI to hang
+VERBOSE ?=
+ifeq "$(VERBOSE)" "1"
+BAZEL_STARTUP_ARGS := --client_debug $(BAZEL_STARTUP_ARGS)
+BAZEL_BUILD_ARGS := -s --sandbox_debug --verbose_failures $(BAZEL_BUILD_ARGS)
+endif
+
+UNAME := $(shell uname)
+ifeq ($(UNAME),Linux)
+BAZEL_CONFIG_DEV  = --config=libc++
+BAZEL_CONFIG_REL  = --config=libc++ --config=release
+BAZEL_CONFIG_ASAN = --config=libc++ --config=clang-asan
+BAZEL_CONFIG_TSAN = --config=libc++ --config=clang-tsan
+endif
+ifeq ($(UNAME),Darwin)
+BAZEL_CONFIG_DEV  = # macOS always links against libc++
+BAZEL_CONFIG_REL  = --config=release
+BAZEL_CONFIG_ASAN = --config=macos-asan
+BAZEL_CONFIG_TSAN = # no working config
+endif
+
 build:
-	PATH=$(PATH) CC=$(CC) CXX=$(CXX) bazel $(BAZEL_STARTUP_ARGS) build $(BAZEL_BUILD_ARGS) $(BAZEL_TARGETS)
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) && bazel $(BAZEL_STARTUP_ARGS) build $(BAZEL_BUILD_ARGS) $(BAZEL_CONFIG_DEV) $(BAZEL_TARGETS)
 
-# Build only envoy - fast
 build_envoy:
-	PATH=$(PATH) CC=$(CC) CXX=$(CXX) bazel $(BAZEL_STARTUP_ARGS) build $(BAZEL_BUILD_ARGS) //src/envoy:envoy
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) && bazel $(BAZEL_STARTUP_ARGS) build $(BAZEL_BUILD_ARGS) $(BAZEL_CONFIG_REL) //src/envoy:envoy
 
 clean:
 	@bazel clean
 
 test:
-	PATH=$(PATH) CC=$(CC) CXX=$(CXX) bazel $(BAZEL_STARTUP_ARGS) test $(BAZEL_TEST_ARGS) $(BAZEL_TARGETS)
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) && bazel $(BAZEL_STARTUP_ARGS) test $(BAZEL_BUILD_ARGS) $(BAZEL_CONFIG_DEV) $(BAZEL_TARGETS)
+	GO111MODULE=on go test ./...
 
 test_asan:
-	PATH=$(PATH) CC=$(CC) CXX=$(CXX) bazel $(BAZEL_STARTUP_ARGS) test $(BAZEL_TEST_ARGS) --config=clang-asan -- $(BAZEL_TARGETS) $(SANITIZER_EXCLUSIONS)
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) && bazel $(BAZEL_STARTUP_ARGS) test $(BAZEL_BUILD_ARGS) $(BAZEL_CONFIG_ASAN) -- $(BAZEL_TARGETS) $(SANITIZER_EXCLUSIONS)
 
 test_tsan:
-	PATH=$(PATH) CC=$(CC) CXX=$(CXX) bazel $(BAZEL_STARTUP_ARGS) test $(BAZEL_TEST_ARGS) --config=clang-tsan --test_env=TSAN_OPTIONS=suppressions=$(TOP)/tsan.suppressions -- $(BAZEL_TARGETS) $(SANITIZER_EXCLUSIONS)
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) && bazel $(BAZEL_STARTUP_ARGS) test $(BAZEL_BUILD_ARGS) $(BAZEL_CONFIG_TSAN) --test_env=TSAN_OPTIONS=suppressions=$(TOP)/tsan.suppressions -- $(BAZEL_TARGETS) $(SANITIZER_EXCLUSIONS)
 
 check:
-	@script/check-license-headers
-	@script/check-repositories
-	@script/check-style
+	@echo >&2 "Please use \"make lint\" instead."
+	@false
 
-artifacts: build
-	@script/push-debian.sh -c opt -p $(ARTIFACTS_DIR)
+lint:
+	@scripts/check_license.sh
+	@scripts/check-repository.sh
+	@scripts/check-style.sh
 
 deb:
-	CC=$(CC) CXX=$(CXX) bazel $(BAZEL_STARTUP_ARGS) build $(BAZEL_BUILD_ARGS) //tools/deb:istio-proxy
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) && bazel $(BAZEL_STARTUP_ARGS) build $(BAZEL_BUILD_ARGS) $(BAZEL_CONFIG_REL) //tools/deb:istio-proxy
+
+artifacts:
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) BAZEL_BUILD_ARGS="$(BAZEL_BUILD_ARGS)" && ./scripts/push-debian.sh -p "$(ARTIFACTS_GCS_PATH)" -o "$(ARTIFACTS_DIR)"
+
+test_release:
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) BAZEL_BUILD_ARGS="$(BAZEL_BUILD_ARGS)" && ./scripts/release-binary.sh -i
+
+push_release:
+	export PATH=$(PATH) CC=$(CC) CXX=$(CXX) BAZEL_BUILD_ARGS="$(BAZEL_BUILD_ARGS)" && ./scripts/release-binary.sh -d "$(RELEASE_GCS_PATH)"
 
 
 .PHONY: build clean test check artifacts
+
+include Makefile.common.mk

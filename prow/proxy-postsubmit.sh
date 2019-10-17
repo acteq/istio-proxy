@@ -29,21 +29,19 @@ set -u
 # Print commands
 set -x
 
-if [ "${CI:-}" == 'bootstrap' ]; then
-  # Test harness will checkout code to directory $GOPATH/src/github.com/istio/proxy
-  # but we depend on being at path $GOPATH/src/istio.io/proxy for imports
-  ln -sf ${GOPATH}/src/github.com/istio ${GOPATH}/src/istio.io
-  ROOT=${GOPATH}/src/istio.io/proxy
-  cd ${GOPATH}/src/istio.io/proxy
-
-  # Setup bazel.rc
-  cp "${ROOT}/tools/bazel.rc.ci" "${HOME}/.bazelrc"
+if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+  echo "Detected GOOGLE_APPLICATION_CREDENTIALS, activating..." >&2
+  gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}"
+  gcloud auth configure-docker
 fi
 
+GOPATH=/home/prow/go
+ROOT=/go/src
+rm -f "${HOME}/.bazelrc"
 GIT_SHA="$(git rev-parse --verify HEAD)"
 
-cd $ROOT
+export BAZEL_BUILD_ARGS="--local_ram_resources=12288 --local_cpu_resources=8 --verbose_failures"
 
 echo 'Create and push artifacts'
-script/release-binary
-ARTIFACTS_DIR="gs://istio-artifacts/proxy/${GIT_SHA}/artifacts/debs" make artifacts
+make push_release RELEASE_GCS_PATH="gs://istio-build/proxy"
+make artifacts ARTIFACTS_GCS_PATH="gs://istio-artifacts/proxy/${GIT_SHA}/artifacts/debs"
