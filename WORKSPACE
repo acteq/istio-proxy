@@ -14,6 +14,7 @@
 #
 ################################################################################
 #
+workspace(name = "io_istio_proxy")
 
 # http_archive is not a native function since bazel 0.19
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
@@ -32,22 +33,21 @@ bind(
     actual = "//external:ssl",
 )
 
-# When updating envoy sha manually please update the sha in istio.deps file also
+# 1. Determine SHA256 `wget https://github.com/envoyproxy/envoy-wasm/archive/$COMMIT.tar.gz && sha256sum $COMMIT.tar.gz`
+# 2. Update .bazelrc and .bazelversion files.
 #
-# Determine SHA256 `wget https://github.com/envoyproxy/envoy/archive/COMMIT.tar.gz && sha256sum COMMIT.tar.gz`
-# envoy commit date  05/16/2019
-# bazel version: 0.25.0
-ENVOY_SHA = "829b905ca0fdc85233c3969247e53a62a52ac627"
+# envoy-wasm commit date: 10/14/2019
+ENVOY_SHA = "16a5cdbf450e4d3bbeead962af5c29bc002ce8b7"
 
-ENVOY_SHA256 = "a5d4bae1dc4495dfa50700f574ae4106715d720dee288b72d00267efcff26a83"
+ENVOY_SHA256 = "a4c72fed81f4d611af45c2ced0e3067f4b41870c6e232d50cd9c0dd352959e98"
 
 LOCAL_ENVOY_PROJECT = "/PATH/TO/ENVOY"
 
 http_archive(
     name = "envoy",
     sha256 = ENVOY_SHA256,
-    strip_prefix = "envoy-" + ENVOY_SHA,
-    url = "https://github.com/envoyproxy/envoy/archive/" + ENVOY_SHA + ".tar.gz",
+    strip_prefix = "envoy-wasm-" + ENVOY_SHA,
+    url = "https://github.com/envoyproxy/envoy-wasm/archive/" + ENVOY_SHA + ".tar.gz",
 )
 
 # TODO(silentdai) Use bazel args to select envoy between local or http
@@ -57,28 +57,18 @@ http_archive(
 #     path = LOCAL_ENVOY_PROJECT,
 #)
 
+load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
+
+envoy_api_binding()
+
 load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
 envoy_api_dependencies()
 
-load("@envoy//bazel:repositories.bzl", "GO_VERSION", "envoy_dependencies")
+load("@envoy//bazel:repositories.bzl", "envoy_dependencies")
 
 envoy_dependencies()
 
-load("@rules_foreign_cc//:workspace_definitions.bzl", "rules_foreign_cc_dependencies")
+load("@envoy//bazel:dependency_imports.bzl", "envoy_dependency_imports")
 
-rules_foreign_cc_dependencies()
-
-load("@envoy//bazel:cc_configure.bzl", "cc_configure")
-
-cc_configure()
-
-load("@envoy_api//bazel:repositories.bzl", "api_dependencies")
-
-api_dependencies()
-
-load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
-
-go_rules_dependencies()
-
-go_register_toolchains(go_version = GO_VERSION)
+envoy_dependency_imports()
