@@ -5,7 +5,7 @@ pipeline:
   build:
     image: istio/ci:go1.11-bazelisk-clang8-cmake3.8.0
     commands:
-      - make lint
+      # - make lint
       - make build
       - make test
     environment:
