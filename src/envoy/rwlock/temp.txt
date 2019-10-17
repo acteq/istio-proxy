@@ -1,0 +1,43 @@
+/*
+
+locck/unlock语句允许嵌套 
+比如
+
+lock.readLock();
+lock.readLock();
+...
+lock.readUnlock();
+lock.readUnlock();
+1
+2
+3
+4
+5
+也允许在写入状态下嵌套读取,比如
+
+lock.writeLock();
+lock.writeLock();
+lock.readLock();
+...
+lock.readUnlock();
+lock.writeUnlock();
+lock.writeUnlock();
+
+说明2
+如果按照默认的类定义方法，提供复制构造函数和赋值操作符=,那么可以想见，在应用中可能会产生不可预知的问题，所以参照atomic模板的写法，加入了禁止复制构造函数和对象复制操作符=的代码,
+
+    //禁止复制构造函数
+    RWLock(const RWLock&) = delete;
+    //禁止对象赋值操作符
+    RWLock& operator=(const RWLock&) = delete;
+    RWLock& operator=(const RWLock&) volatile = delete;
+1
+2
+3
+4
+5
+说明3
+这个代码还有欠缺的地方就是没有实现超时异常中止。
+
+
+*/
